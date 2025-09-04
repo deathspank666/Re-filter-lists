@@ -1,46 +1,62 @@
 from idna import encode as idna_encode
 
-# Function to read domains from a file
+DOMAINS_FILE = "sum/input/domains.lst"
+OONI_FILE = "sum/input/ooni_domains.lst"
+COMMUNITY_FILE = "community.lst"
+EXCLUDE_FILE = "sum/input/global_exclude_domains.lst"
+OUTPUT_FILE = "sum/output/domains_all.lst"
+
 def read_domains_from_file(file_path):
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            domains = [line.strip() for line in f.readlines() if line.strip()]
-        return domains
+        with open(file_path, "r", encoding="utf-8") as f:
+            domains = []
+            for line in f:
+                s = line.strip()
+                if s and not s.startswith("#"):
+                    if s.startswith("*."):
+                        s = s[2:]
+                    domains.append(s)
+            return domains
     except FileNotFoundError:
         return []
 
-# Function to convert domains to punycode
 def convert_to_punycode(domains):
     punycode_domains = set()
     for domain in domains:
         try:
-            punycode_domain = idna_encode(domain).decode('utf-8')
-            punycode_domains.add(punycode_domain)
+            puny = idna_encode(domain).decode("utf-8")
+            punycode_domains.add(puny)
         except Exception:
             pass
     return punycode_domains
 
-# Main function to process domain files and create the output file
-def main():
-    # Read domains from the three files
-    domains1 = read_domains_from_file("sum/input/domains.lst")
-    domains2 = read_domains_from_file("sum/input/ooni_domains.lst")
-    domains3 = read_domains_from_file("community.lst")
+def filter_with_suffixes(domains, excludes):
+    out = set()
+    for d in domains:
+        if any(d == e or d.endswith("." + e) for e in excludes):
+            continue
+        out.add(d)
+    return out
 
-    # Combine all domains
+def main():
+    domains1 = read_domains_from_file(DOMAINS_FILE)
+    domains2 = read_domains_from_file(OONI_FILE)
+    domains3 = read_domains_from_file(COMMUNITY_FILE)
+    excludes = read_domains_from_file(EXCLUDE_FILE)
+
     all_domains = set(domains1 + domains2 + domains3)
 
-    # Convert to punycode and remove duplicates
     unique_domains = convert_to_punycode(all_domains)
+    exclude_puny = convert_to_punycode(set(excludes))
 
-    # Write the unique domains to the output file
-    output_file = "sum/output/domains_all.lst"
+    final_domains = filter_with_suffixes(unique_domains, exclude_puny)
+
     try:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            for domain in sorted(unique_domains):
+        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+            for domain in sorted(final_domains):
                 f.write(f"{domain}\n")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Error writing output: {e}")
 
 if __name__ == "__main__":
     main()
