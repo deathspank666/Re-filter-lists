@@ -4,86 +4,92 @@ import re
 import logging
 from datetime import datetime, timedelta
 
-# Set up logging for domain checks
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s - %(levelname)s - %(message)s",
-                    handlers=[logging.FileHandler("ooni_domain_fetch.log", mode='a'),
-                              logging.StreamHandler()])
+OUTPUT_FILE = "sum/input/ooni_domains.lst"
+EXCLUDE_FILE = "sum/input/ooni_exclude_domains.lst"
 
-# Function to normalize domain by removing 'www.' but not subdomains like 'subdomain.domain.com'
-def normalize_domain(domain):
-    return domain.lstrip('www.') if domain.startswith('www.') else domain
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("ooni_domain_fetch.log", mode="a"),
+              logging.StreamHandler()]
+)
 
-# Function to fetch and process OONI domains with logging and anomaly checks
-def fetch_and_process_ooni_domains(output_file):
+def normalize_domain(domain: str) -> str:
+    return domain.lstrip("www.") if domain.startswith("www.") else domain
+
+def load_suffix_exclusions(path: str):
     try:
-        # Calculate the date range for the last 14 days
-        today = datetime.now()
-        until_date = today.strftime('%Y-%m-%d')
-        since_date = (today - timedelta(days=14)).strftime('%Y-%m-%d')
+        with open(path, "r", encoding="utf-8") as f:
+            items = []
+            for line in f:
+                s = line.strip().lower()
+                if not s or s.startswith("#"):
+                    continue
+                if s.startswith("*."):
+                    s = s[2:]
+                items.append(s)
+            return set(items)
+    except FileNotFoundError:
+        return set()
 
-        # Construct the URL for downloading the CSV file using the OONI API
+def is_excluded(domain: str, excludes: set) -> bool:
+    d = domain.lower()
+    return any(d == suf or d.endswith("." + suf) for suf in excludes)
+
+def fetch_and_process_ooni_domains(output_file: str):
+    try:
+        today = datetime.now()
+        until_date = today.strftime("%Y-%m-%d")
+        since_date = (today - timedelta(days=14)).strftime("%Y-%m-%d")
+
         base_url = "https://api.ooni.io/api/v1/aggregation"
         params = {
             "axis_y": "domain",
             "axis_x": "measurement_start_day",
-            "probe_cc": "RU",  # Replace 'RU' with the country code you're interested in
+            "probe_cc": "RU",
             "since": since_date,
             "until": until_date,
             "test_name": "web_connectivity",
             "time_grain": "day",
-            "format": "CSV"
+            "format": "CSV",
         }
 
         url = f"{base_url}?{'&'.join([f'{k}={v}' for k, v in params.items()])}"
+        logging.info(f"Fetching OONI data: {url}")
 
-        # Fetch the CSV data from OONI
         response = requests.get(url)
         if response.status_code != 200:
-            logging.error(f"Failed to download data from OONI API, status code: {response.status_code}")
+            logging.error(f"Failed to download data, status: {response.status_code}")
             return
 
-        # Process the CSV data
         domains = set()
-        csv_data = response.content.decode('utf-8').splitlines()
+        csv_data = response.content.decode("utf-8").splitlines()
         csv_reader = csv.DictReader(csv_data)
 
-        pattern = r'^.*\.{2,}.*$'  # Pattern to match incorrect domains
+        pattern = r"^.*\.{2,}.*$"
+        excludes = load_suffix_exclusions(EXCLUDE_FILE)
 
         for row in csv_reader:
-            domain = row['domain'].strip()
-            anomaly_count = int(row['anomaly_count'])
-            ok_count = int(row['ok_count'])
+            domain = row["domain"].strip()
+            anomaly_count = int(row["anomaly_count"])
+            ok_count = int(row["ok_count"])
 
-            # Log domain processing details
-            logging.info(f"Checking domain: {domain} | Anomalies: {anomaly_count}, OK: {ok_count}, Anomaly Rate: {anomaly_count / (anomaly_count + ok_count) if (anomaly_count + ok_count) > 0 else 0:.2f}")
+            logging.info(
+                f"Checking: {domain} | Anomalies: {anomaly_count}, OK: {ok_count}"
+            )
 
-            # Filter out incorrect domains and yandex domains
-            if re.match(pattern, domain) or domain.endswith('yandex.net') or domain.endswith('yandex.ru'):
-                logging.info(f"Domain is either incorrectly formatted or a Yandex domain: {domain}")
+            if re.match(pattern, domain):
+                continue
+            if domain.endswith("yandex.net") or domain.endswith("yandex.ru"):
+                continue
+            if is_excluded(domain, excludes):
                 continue
 
-            # Log and process based on anomaly vs OK count
             if anomaly_count > ok_count:
-                normalized_domain = normalize_domain(domain)
-                if normalized_domain not in domains:
-                    domains.add(normalized_domain)
-                    logging.info(f"Anomaly rate is high for the domain: {normalized_domain} - Adding to the list")
-            else:
-                logging.info(f"Site is accessible in Russia: {domain}")
+                normalized = normalize_domain(domain)
+                if normalized not in domains:
+                    domains.add(normalized)
 
-        # Write the domains to the output file
-        with open(output_file, 'w') as output:
-            for domain in sorted(domains):  # Optionally sort the domains
-                output.write(f"{domain}\n")
-
-        print(f"Total unique domains written to {output_file}: {len(domains)}")
-
-    except Exception as e:
-        logging.error(f"Error occurred during fetching or processing: {e}")
-
-# Replace with your output file path
-output_file = 'sum/input/ooni_domains.lst'
-
-# Fetch and process OONI domains, and output to the specified file
-fetch_and_process_ooni_domains(output_file)
+        with open(output_file, "w", encoding="utf-8") as output:
+            for domain in sorted(domains):
+                output.write(f"{domain}
