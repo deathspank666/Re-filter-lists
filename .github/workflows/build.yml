@@ -163,6 +163,7 @@ jobs:
         gh release create "$TAG_NAME" \
           ./sum/output/domains_all.lst \
           ./sum/output/ipsum.lst \
+          ./sum/input/ooni_domains.lst \
           ./src/xray-geoip/output/dat/geoip.dat \
           ./src/xray-geosite/geosite.dat \
           ./src/sing-box-files/refilter/geoip.db \
