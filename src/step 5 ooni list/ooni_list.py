@@ -92,4 +92,12 @@ def fetch_and_process_ooni_domains(output_file: str):
 
         with open(output_file, "w", encoding="utf-8") as output:
             for domain in sorted(domains):
-                output.write(f"{domain}
+                output.write(f"{domain}\n")
+
+        print(f"Total unique domains written: {len(domains)}")
+
+    except Exception as e:
+        logging.error(f"Error occurred: {e}")
+
+if __name__ == "__main__":
+    fetch_and_process_ooni_domains(OUTPUT_FILE)
